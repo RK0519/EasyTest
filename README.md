@@ -1,4 +1,4 @@
-# Test Case Agent
+# EasyTest - Test Case Agent
 
 Give it a website URL; it crawls the site, identifies the site type and user flows,
 and generates functional test cases per flow (exportable to Excel).
