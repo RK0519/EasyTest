@@ -1,4 +1,4 @@
-import asyncio, uuid
+import asyncio, os, uuid
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -11,7 +11,8 @@ from . import crawler, llm
 from .export import to_excel
 
 app = FastAPI(title="EasyTest")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],
+app.add_middleware(CORSMiddleware,
+                   allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")],
                    allow_methods=["*"], allow_headers=["*"])
 
 JOBS: dict[str, dict] = {}  # in-memory; swap for Redis/DB if you deploy this

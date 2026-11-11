@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+
+const API = import.meta.env.VITE_API_URL || "";
 
 const STAGES = [
   ["crawling", "Map the site"],
@@ -26,7 +28,7 @@ export default function App() {
     setOpen(null);
     setFilters({ flow: "All", priority: "All", type: "All", source: "All" });
     try {
-      const r = await fetch("/api/jobs", {
+      const r = await fetch(`${API}/api/jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: url.trim(), max_pages: Number(maxPages) }),
@@ -37,16 +39,19 @@ export default function App() {
       clearInterval(timer.current);
       timer.current = setInterval(async () => {
         try {
-          const j = await (await fetch(`/api/jobs/${job_id}`)).json();
+          const res = await fetch(`${API}/api/jobs/${job_id}`);
+          if (!res.ok) throw new Error("job lost");
+          const j = await res.json();
           setJob(j);
           if (j.status !== "running") clearInterval(timer.current);
         } catch {
-          setError("Lost connection to the backend. Is it running on port 8000?");
+          setError("Lost the job. The server may have restarted or gone to sleep. Please run it again.");
+          setJob(null);
           clearInterval(timer.current);
         }
       }, 1500);
     } catch (err) {
-      setError(err.message || "Could not reach the backend. Is it running on port 8000?");
+      setError(err.message || "Could not reach the backend. It may be starting up, so try again in a minute.");
     }
   }
 
@@ -113,7 +118,7 @@ export default function App() {
         <section className="results">
           <div className="bar">
             <h2>{shown.length} of {cases.length} test cases</h2>
-            <a className="btn" href={`/api/jobs/${job.id}/export`}>Download Excel</a>
+            <a className="btn" href={`${API}/api/jobs/${job.id}/export`}>Download Excel</a>
           </div>
           <div className="filters">
             {Object.keys(options).map((k) => (
@@ -129,14 +134,14 @@ export default function App() {
               <thead><tr><th>ID</th><th>Flow</th><th>Test case</th><th>Type</th><th>Priority</th><th>Source</th></tr></thead>
               <tbody>
                 {shown.map((c) => (
-                  <>
-                    <tr key={c.id} className={open === c.id ? "sel" : ""} onClick={() => setOpen(open === c.id ? null : c.id)}>
+                  <Fragment key={c.id}>
+                    <tr className={open === c.id ? "sel" : ""} onClick={() => setOpen(open === c.id ? null : c.id)}>
                       <td>{c.id}</td><td>{c.flow}</td><td>{c.title}</td><td>{c.type}</td>
                       <td><span className={`pri ${c.priority}`}>{c.priority}</span></td>
                       <td>{c.source}</td>
                     </tr>
                     {open === c.id && (
-                      <tr key={c.id + "d"} className="detail"><td colSpan="6">
+                      <tr className="detail"><td colSpan="6">
                         <dl>
                           <dt>Preconditions</dt><dd>{c.preconditions || "None"}</dd>
                           <dt>Steps</dt><dd><ol>{c.steps.map((s, i) => <li key={i}>{s}</li>)}</ol></dd>
@@ -145,7 +150,7 @@ export default function App() {
                         </dl>
                       </td></tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

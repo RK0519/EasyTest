@@ -1,6 +1,7 @@
 """Playwright crawler: loads the site, finds the pages that matter, and builds
 a compact 'interaction map' (forms, inputs, buttons, nav) for each page."""
 import asyncio
+import os
 from urllib.parse import urlparse, urldefrag
 from playwright.async_api import async_playwright
 
@@ -41,7 +42,8 @@ EXTRACT_JS = """() => {
 }"""
 
 # --- Settings that make the browser look less like a bot ---
-LAUNCH_ARGS = ["--disable-http2", "--disable-blink-features=AutomationControlled"]
+LAUNCH_ARGS = ["--disable-http2", "--disable-blink-features=AutomationControlled",
+               "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
 STEALTH = "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -87,7 +89,8 @@ async def crawl(url: str, max_pages: int = 6, on_progress=None) -> dict:
 
     async with async_playwright() as p:
         home, last_err, browser, page = None, None, None, None
-        for headless in (True, False):  # second try opens a visible window
+        modes = (True,) if os.getenv("RENDER") else (True, False)  # no screen on Render
+        for headless in modes:  # on your laptop, the second try opens a visible window
             if on_progress and not headless:
                 on_progress("Blocked in headless mode, retrying with a visible browser")
             browser, page = await _open(p, headless)

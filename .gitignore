@@ -1,15 +1,6 @@
-# secrets
 .env
-
-# Python
 .venv/
 __pycache__/
 *.pyc
-
-# Node
 node_modules/
 dist/
-
-# OS / editor
-.DS_Store
-.vscode/

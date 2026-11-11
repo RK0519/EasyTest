@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 playwright
-anthropic
+groq
 openpyxl
 pydantic
 python-dotenv
