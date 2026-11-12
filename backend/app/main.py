@@ -10,9 +10,12 @@ from pydantic import BaseModel, Field
 from . import crawler, llm
 from .export import to_excel
 
+# Strip spaces and any trailing slash, so a typo in the Render variable can't break CORS
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173").strip().rstrip("/")
+
 app = FastAPI(title="EasyTest")
 app.add_middleware(CORSMiddleware,
-                   allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")],
+                   allow_origins=[FRONTEND_ORIGIN],
                    allow_methods=["*"], allow_headers=["*"])
 
 JOBS: dict[str, dict] = {}  # in-memory; swap for Redis/DB if you deploy this
