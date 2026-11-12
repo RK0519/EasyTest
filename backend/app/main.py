@@ -19,6 +19,7 @@ app.add_middleware(CORSMiddleware,
                    allow_methods=["*"], allow_headers=["*"])
 
 JOBS: dict[str, dict] = {}  # in-memory; swap for Redis/DB if you deploy this
+CRAWL_LOCK = asyncio.Semaphore(1)  # one browser at a time (low-memory server)
 
 
 class JobRequest(BaseModel):
@@ -33,10 +34,12 @@ def _set(job, **kw):
 async def run_job(job_id: str, req: JobRequest):
     job = JOBS[job_id]
     try:
-        _set(job, stage="crawling", message="Opening the site and mapping its pages")
-        crawl = await crawler.crawl(
-            req.url, req.max_pages,
-            on_progress=lambda m: _set(job, message=m))
+        _set(job, stage="crawling", message="Waiting for another run to finish")
+        async with CRAWL_LOCK:
+            _set(job, message="Opening the site and mapping its pages")
+            crawl = await crawler.crawl(
+                req.url, req.max_pages,
+                on_progress=lambda m: _set(job, message=m))
         job["pages_crawled"] = len(crawl["pages"])
         job["warnings"] = crawl["errors"]
         if any(p.get("captcha") for p in crawl["pages"]):
