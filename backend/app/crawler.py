@@ -41,12 +41,23 @@ EXTRACT_JS = """() => {
           headings, inputs, forms, buttons, links, captcha};
 }"""
 
-# --- Settings that make the browser look less like a bot ---
-LAUNCH_ARGS = ["--disable-http2", "--disable-blink-features=AutomationControlled",
-               "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+# --- Settings that make the browser look less like a bot, and use less memory ---
+ON_RENDER = bool(os.getenv("RENDER"))
+MAX_PAGES_ON_RENDER = 3  # the free 512 MB server can't handle more
+
+LAUNCH_ARGS = [
+    "--disable-http2", "--disable-blink-features=AutomationControlled",
+    "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
+    # memory savers
+    "--disable-extensions", "--disable-background-networking",
+    "--disable-features=site-per-process,TranslateUI",
+    "--renderer-process-limit=1", "--no-zygote",
+    "--js-flags=--max-old-space-size=192",
+]
 STEALTH = "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+BLOCKED_TYPES = {"image", "media", "font"}  # we only need the page structure
 
 
 def _norm(url: str) -> str:
@@ -61,41 +72,58 @@ def _score(link: dict, base_host: str) -> int:
     return sum(w for k, w in KEYWORDS.items() if k in blob)
 
 
-async def _snapshot(page, url: str) -> dict:
-    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+async def _block_heavy(route):
+    if route.request.resource_type in BLOCKED_TYPES:
+        await route.abort()
+    else:
+        await route.continue_()
+
+
+async def _snapshot(ctx, url: str) -> dict:
+    page = await ctx.new_page()  # fresh page per URL, closed afterwards to free memory
     try:
-        await page.wait_for_load_state("networkidle", timeout=8000)
-    except Exception:
-        pass  # SPAs with long polling never go idle; carry on
-    data = await page.evaluate(EXTRACT_JS)
-    data["url"] = page.url
-    return data
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        if ON_RENDER:
+            await page.wait_for_timeout(1500)
+        else:
+            try:
+                await page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass  # SPAs with long polling never go idle; carry on
+        data = await page.evaluate(EXTRACT_JS)
+        data["url"] = page.url
+        return data
+    finally:
+        await page.close()
 
 
 async def _open(p, headless: bool):
     browser = await p.chromium.launch(headless=headless, args=LAUNCH_ARGS)
     ctx = await browser.new_context(
-        user_agent=USER_AGENT, viewport={"width": 1366, "height": 850},
+        user_agent=USER_AGENT, viewport={"width": 1280, "height": 720},
         locale="en-IN", timezone_id="Asia/Kolkata")
     await ctx.add_init_script(STEALTH)
-    return browser, await ctx.new_page()
+    await ctx.route("**/*", _block_heavy)
+    return browser, ctx
 
 
 async def crawl(url: str, max_pages: int = 6, on_progress=None) -> dict:
     if not url.startswith("http"):
         url = "https://" + url
+    if ON_RENDER:
+        max_pages = min(max_pages, MAX_PAGES_ON_RENDER)
     base_host = urlparse(url).netloc.replace("www.", "")
     pages, errors = [], []
 
     async with async_playwright() as p:
-        home, last_err, browser, page = None, None, None, None
-        modes = (True,) if os.getenv("RENDER") else (True, False)  # no screen on Render
+        home, last_err, browser, ctx = None, None, None, None
+        modes = (True,) if ON_RENDER else (True, False)  # no screen on Render
         for headless in modes:  # on your laptop, the second try opens a visible window
             if on_progress and not headless:
                 on_progress("Blocked in headless mode, retrying with a visible browser")
-            browser, page = await _open(p, headless)
+            browser, ctx = await _open(p, headless)
             try:
-                home = await _snapshot(page, url)
+                home = await _snapshot(ctx, url)
                 break
             except Exception as e:
                 last_err = e
@@ -124,7 +152,7 @@ async def crawl(url: str, max_pages: int = 6, on_progress=None) -> dict:
             if on_progress:
                 on_progress(f"Visiting page {i + 1} of {len(queue) + 1}")
             try:
-                pages.append(await _snapshot(page, link))
+                pages.append(await _snapshot(ctx, link))
             except Exception as e:
                 errors.append(f"{link}: {str(e)[:120]}")
         await browser.close()
